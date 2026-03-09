@@ -4,7 +4,6 @@ import Paginate from 'vuejs-paginate-next'
 </script>
 
 <template>
-  <!-- Button -->
   <div class="card mb-3">
     <div class="card-body">
       <form class="d-flex" @submit.prevent>
@@ -24,7 +23,6 @@ import Paginate from 'vuejs-paginate-next'
     </div>
   </div>
 
-  <!-- Create Post -->
   <div class="card mb-3">
     <div class="card-body">
       <form @submit.prevent="createPost">
@@ -40,33 +38,16 @@ import Paginate from 'vuejs-paginate-next'
   </div>
 
   <div>
-    <!-- Post -->
     <div class="card post-card" v-for="post in paginatedItems()" :key="post._id">
       <div class="card-body">
         <div class="d-flex">
           <img
-            v-if="post.userId.gender == 'male'"
-            src="../assets/img/profile_male.png"
+            :src="getUserAvatar(post.userId)"
             class="rounded-circle me-3"
             alt="User Profile"
             width="50"
             height="50"
-          />
-          <img
-            v-if="post.userId.gender == 'female'"
-            src="../assets/img/profile_female.png"
-            class="rounded-circle me-3"
-            alt="User Profile"
-            width="50"
-            height="50"
-          />
-          <img
-            v-if="post.userId.gender == 'other' || post.userId.gender == undefined"
-            src="../assets/img/profile_other.png"
-            class="rounded-circle me-3"
-            alt="User Profile"
-            width="50"
-            height="50"
+            style="object-fit: cover"
           />
 
           <div>
@@ -92,10 +73,61 @@ import Paginate from 'vuejs-paginate-next'
           />
         </div>
         <p v-if="!post.editing" class="mt-3">{{ post.content }}</p>
-        <div class="d-flex justify-content-between">
-          <button class="btn btn-outline-primary btn-sm"><i class="bi bi-cup-hot"></i></button>
-          <button class="btn btn-outline-primary btn-sm">Comment</button>
+
+        <div class="d-flex justify-content-between align-items-center">
+          <button class="btn btn-outline-primary btn-sm" @click="toggleLike(post)">
+            <i :class="isLikedByMe(post) ? 'bi bi-hand-thumbs-up-fill' : 'bi bi-hand-thumbs-up'"></i>
+            {{ post.likes?.length || 0 }}
+          </button>
+          <button class="btn btn-outline-primary btn-sm" @click="toggleComments(post)">
+            Comment ({{ post.comments?.length || 0 }})
+          </button>
           <button class="btn btn-outline-primary btn-sm"><i class="bi bi-share"></i></button>
+        </div>
+
+        <div v-if="post.showComments" class="mt-3">
+          <form @submit.prevent="addComment(post)" class="mb-3 d-flex gap-2">
+            <input
+              v-model="post.newComment"
+              type="text"
+              class="form-control"
+              placeholder="Write a comment"
+            />
+            <button class="btn btn-primary btn-sm" type="submit">Post</button>
+          </form>
+
+          <div v-if="post.comments?.length">
+            <div
+              class="border rounded p-2 mb-2"
+              v-for="comment in post.comments"
+              :key="comment._id"
+            >
+              <div class="d-flex align-items-center">
+                <img
+                  :src="getUserAvatar(comment.userId)"
+                  class="rounded-circle me-2"
+                  alt="Comment User"
+                  width="32"
+                  height="32"
+                  style="object-fit: cover"
+                />
+                <div class="flex-grow-1">
+                  <strong>{{ comment.userId?.username }}</strong>
+                  <div class="small text-muted">{{ new Date(comment.createdAt).toLocaleString() }}</div>
+                </div>
+                <button
+                  v-if="comment.userId?._id === id || post.userId._id === id"
+                  class="btn btn-outline-danger btn-sm"
+                  @click="deleteComment(post, comment)"
+                >
+                  <i class="bi bi-trash3"></i>
+                </button>
+              </div>
+              <div class="mt-1">{{ comment.content }}</div>
+            </div>
+          </div>
+
+          <div v-else class="text-muted small">No comments yet.</div>
         </div>
       </div>
     </div>
@@ -117,15 +149,16 @@ import Paginate from 'vuejs-paginate-next'
 </template>
 
 <script>
+const maleProfileImage = new URL('../assets/img/profile_male.png', import.meta.url).href
+const femaleProfileImage = new URL('../assets/img/profile_female.png', import.meta.url).href
+const otherProfileImage = new URL('../assets/img/profile_other.png', import.meta.url).href
+
 export default {
   components: {
     paginate: Paginate,
   },
   data() {
     return {
-      errors: {
-        content: '',
-      },
       sortBy: 'newest',
       content: '',
       search: '',
@@ -133,14 +166,53 @@ export default {
       perPage: 3,
       page: 1,
       id: jwtDecode(localStorage.getItem('token')).id,
-      debouncedSearch: '', // Holds the debounced search term
-      debounceTimeout: null, // Timeout ID for debouncing
+      debouncedSearch: '',
+      debounceTimeout: null,
       errors: {
         content: '',
       },
     }
   },
   methods: {
+    getDefaultProfileImageByGender(gender) {
+      if (gender === 'male') {
+        return maleProfileImage
+      }
+
+      if (gender === 'female') {
+        return femaleProfileImage
+      }
+
+      return otherProfileImage
+    },
+    getUserAvatar(user) {
+      if (user?.profileImage) {
+        return user.profileImage
+      }
+
+      return this.getDefaultProfileImageByGender(user?.gender)
+    },
+    hydratePost(post, oldPost = {}) {
+      return {
+        ...post,
+        likes: post.likes || [],
+        comments: post.comments || [],
+        showComments: oldPost.showComments || false,
+        newComment: oldPost.newComment || '',
+      }
+    },
+    updatePostInList(updatedPost) {
+      const index = this.posts.findIndex((p) => p._id === updatedPost._id)
+      if (index === -1) {
+        this.posts.push(this.hydratePost(updatedPost))
+        return
+      }
+
+      this.posts.splice(index, 1, this.hydratePost(updatedPost, this.posts[index]))
+    },
+    isLikedByMe(post) {
+      return (post.likes || []).some((likeId) => String(likeId) === this.id)
+    },
     validate() {
       this.errors = {}
       if (!this.content) {
@@ -167,7 +239,7 @@ export default {
 
         if (response.ok) {
           const data = await response.json()
-          this.posts.push(data.post)
+          this.posts.push(this.hydratePost(data.post))
           this.content = ''
         }
       } catch (error) {
@@ -202,7 +274,6 @@ export default {
           }),
         })
         if (response.ok) {
-          const data = await response.json()
           this.content = ''
         }
       } catch (error) {
@@ -223,7 +294,6 @@ export default {
           }),
         })
         if (response.ok) {
-          const data = await response.json()
           const index = this.posts.findIndex((p) => p._id === post._id)
           if (index !== -1) {
             this.posts.splice(index, 1)
@@ -233,13 +303,75 @@ export default {
         console.log(error)
       }
     },
-    debounceSearch() {
-      clearTimeout(this.debounceTimeout) // Clear existing timeout
+    async toggleLike(post) {
+      try {
+        const response = await fetch(`/api/post/${post._id}/like`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: localStorage.getItem('token'),
+          },
+        })
 
-      // Set new timeout to update `debouncedSearch` after delay
+        if (response.ok) {
+          const data = await response.json()
+          this.updatePostInList(data.post)
+        }
+      } catch (error) {
+        console.log(error)
+      }
+    },
+    toggleComments(post) {
+      post.showComments = !post.showComments
+    },
+    async addComment(post) {
+      if (!post.newComment || !post.newComment.trim()) {
+        return
+      }
+
+      try {
+        const response = await fetch(`/api/post/${post._id}/comment`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: localStorage.getItem('token'),
+          },
+          body: JSON.stringify({
+            content: post.newComment,
+          }),
+        })
+
+        if (response.ok) {
+          const data = await response.json()
+          this.updatePostInList(data.post)
+        }
+      } catch (error) {
+        console.log(error)
+      }
+    },
+    async deleteComment(post, comment) {
+      try {
+        const response = await fetch(`/api/post/${post._id}/comment/${comment._id}`, {
+          method: 'DELETE',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: localStorage.getItem('token'),
+          },
+        })
+
+        if (response.ok) {
+          const data = await response.json()
+          this.updatePostInList(data.post)
+        }
+      } catch (error) {
+        console.log(error)
+      }
+    },
+    debounceSearch() {
+      clearTimeout(this.debounceTimeout)
       this.debounceTimeout = setTimeout(() => {
-        this.debouncedSearch = this.search // Update with the debounced search term
-      }, 300) // Delay in milliseconds
+        this.debouncedSearch = this.search
+      }, 300)
     },
     getPageCount() {
       return Math.ceil(this.filteredPosts.length / this.perPage)
@@ -270,7 +402,6 @@ export default {
           break
       }
 
-      // Use the debounced search term for filtering
       if (this.debouncedSearch) {
         temp = temp.filter((post) =>
           post.content.toLowerCase().includes(this.debouncedSearch.toLowerCase()),
@@ -282,11 +413,11 @@ export default {
   },
   watch: {
     search() {
-      this.debounceSearch() // Trigger debounce function when `search` changes
+      this.debounceSearch()
     },
   },
   beforeDestroy() {
-    clearTimeout(this.debounceTimeout) // Clean up timeout when component is destroyed
+    clearTimeout(this.debounceTimeout)
   },
 
   async mounted() {
@@ -299,7 +430,7 @@ export default {
         },
       })
       const data = await response.json()
-      this.posts = data
+      this.posts = data.map((post) => this.hydratePost(post))
     } catch (error) {
       console.log(error)
     }

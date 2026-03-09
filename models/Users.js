@@ -6,6 +6,7 @@ const userSchema = new mongoose.Schema({
     "username": {type: String, required: true, unique: true},
     "age": {type: Number, required: true},
     "gender": {type: String, required: false},
+    "profileImage": {type: String, required: false},
     "birthday": {type: Date, required: false},
     "bio": {type: String, required: false},
     "createdAt": {type: Date, default: Date.now},
@@ -18,4 +19,6 @@ const userSchema = new mongoose.Schema({
 const Users = mongoose.model('User', userSchema);
 
 module.exports = Users;
+
+
 

@@ -1,12 +1,45 @@
 const express = require("express");
 const router = express.Router();
 const jwt = require("jsonwebtoken");
+const fs = require("fs");
+const path = require("path");
+const { randomUUID } = require("crypto");
 const Users = require("../models/Users");
 const Posts = require("../models/Posts");
 const Messages = require("../models/Messages")
 const auth = require("../middleware/auth");
 const bcrypt = require("bcryptjs");
 const Room = require("../models/Rooms");
+
+const profileImagesDir = path.join(__dirname, "..", "uploads", "profile-images");
+const profileImagePrefix = "/uploads/profile-images/";
+
+function escapeRegex(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function getImageExtension(mimeType) {
+  const supportedMimeTypeToExt = {
+    "image/jpeg": "jpg",
+    "image/jpg": "jpg",
+    "image/png": "png",
+    "image/webp": "webp",
+    "image/gif": "gif",
+  };
+
+  return supportedMimeTypeToExt[mimeType];
+}
+
+function tryDeletePreviousProfileImage(profileImagePath) {
+  if (!profileImagePath || !profileImagePath.startsWith(profileImagePrefix)) {
+    return;
+  }
+
+  const previousPath = path.join(__dirname, "..", profileImagePath.replace(/^\//, ""));
+  if (fs.existsSync(previousPath)) {
+    fs.unlinkSync(previousPath);
+  }
+}
 
 router.post("/register", async (req, res) => {
   const { username, email, password, age } = req.body;
@@ -73,7 +106,7 @@ router.get("/profile/:id", auth, async (req, res) => {
   const { id } = req.params;
   const { id: userId } = req.user;
   try {
-    const user = await Users.findById(id, "username email age gender birthday bio _id").lean();
+    const user = await Users.findById(id, "username email age gender birthday bio profileImage _id").lean();
     if (!user) {
       return res.status(400).json({ message: "User not found" });
     }
@@ -114,6 +147,58 @@ router.put("/profile", auth, async (req, res) => {
   }
 });
 
+router.post("/profile/image", auth, async (req, res) => {
+  const { id } = req.user;
+  const { imageData } = req.body;
+
+  try {
+    if (!imageData || typeof imageData !== "string") {
+      return res.status(400).json({ message: "Image data is required" });
+    }
+
+    const matches = imageData.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/);
+    if (!matches) {
+      return res.status(400).json({ message: "Invalid image format" });
+    }
+
+    const mimeType = matches[1];
+    const base64Payload = matches[2];
+    const extension = getImageExtension(mimeType);
+
+    if (!extension) {
+      return res.status(400).json({ message: "Unsupported image type" });
+    }
+
+    const imageBuffer = Buffer.from(base64Payload, "base64");
+    if (imageBuffer.length > 5 * 1024 * 1024) {
+      return res.status(400).json({ message: "Image must be 5MB or smaller" });
+    }
+
+    const user = await Users.findById(id);
+    if (!user) {
+      return res.status(400).json({ message: "User not found" });
+    }
+
+    fs.mkdirSync(profileImagesDir, { recursive: true });
+
+    const filename = `${id}-${Date.now()}-${randomUUID()}.${extension}`;
+    const filePath = path.join(profileImagesDir, filename);
+    fs.writeFileSync(filePath, imageBuffer);
+
+    tryDeletePreviousProfileImage(user.profileImage);
+
+    user.profileImage = `${profileImagePrefix}${filename}`;
+    await user.save();
+
+    return res.status(200).json({
+      message: "Profile image updated successfully",
+      profileImage: user.profileImage,
+    });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+});
+
 router.delete("/profile", auth, async (req, res) => {
   const { id } = req.user;
   try {
@@ -129,6 +214,9 @@ router.delete("/profile", auth, async (req, res) => {
     if (!user) {
       return res.status(400).json({ message: "User not found" });
     }
+
+    tryDeletePreviousProfileImage(user.profileImage);
+
     await user.deleteOne();
     return res.status(200).json({ message: "Profile deleted successfully" });
   } catch (error) {
@@ -140,7 +228,7 @@ router.get("/suggestions/:limit", auth, async (req, res) => {
   const limit = parseInt(req.params.limit, 10);
   const { id } = req.user;
   try {
-    const users = await Users.find({ _id: { $ne: id } }, "username gender id")
+    const users = await Users.find({ _id: { $ne: id } }, "username gender profileImage id")
       .limit(limit)
       .lean();
     const theUser = await Users.findById(id);
@@ -160,17 +248,24 @@ router.get("/suggestions/:limit", auth, async (req, res) => {
 });
 
 router.get("/:search", auth, async (req, res) => {
-  const search = req.params.search;
+  const search = (req.params.search || "").trim();
   const { id } = req.user;
   try {
+    if (search.length < 2) {
+      return res.status(200).json([]);
+    }
+
+    const safeSearch = escapeRegex(search);
     const users = await Users.find(
       {
-        $or: [{ username: { $regex: new RegExp(search, "i") } }],
+        $or: [{ username: { $regex: new RegExp(safeSearch, "i") } }],
       },
-      "username gender id"
+      "username gender profileImage id"
     )
       .where("_id")
-      .ne(id).lean();
+      .ne(id)
+      .limit(12)
+      .lean();
 
     const theUser = await Users.findById(id);
 

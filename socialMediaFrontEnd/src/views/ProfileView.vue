@@ -1,10 +1,9 @@
 <script setup>
-  import NavBar from '../components/navBarComponent.vue'
-  import Footer from '../components/footerComponent.vue'
+import NavBar from '../components/navBarComponent.vue'
+import Footer from '../components/footerComponent.vue'
 </script>
 
 <template>
-  <!-- Edit Profile Section -->
   <NavBar></NavBar>
 
   <div class="container mt-5">
@@ -13,35 +12,33 @@
         <h2 class="text-center mb-4">Edit Profile</h2>
         <div class="card">
           <div class="card-body">
-            <!-- Profile Picture Update -->
             <div class="text-center mb-4">
               <img
-                v-if="gender == 'male'"
-                src="../assets/img/profile_male.png"
+                :src="profileImageSrc"
                 class="rounded-circle mb-2"
                 alt="User Profile"
                 width="150"
                 height="150"
+                style="object-fit: cover"
               />
-              <img
-                v-if="gender == 'female'"
-                src="../assets/img/profile_female.png"
-                class="rounded-circle mb-2"
-                alt="User Profile"
-                width="150"
-                height="150"
-              />
-              <img
-                v-if="gender == 'other'"
-                src="../assets/img/profile_other.png"
-                class="rounded-circle mb-2"
-                alt="User Profile"
-                width="150"
-                height="150"
-              />
+
+              <div class="mt-2">
+                <input
+                  class="form-control"
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp,image/gif"
+                  @change="handleImageSelected"
+                />
+                <small class="text-muted d-block mt-1">
+                  Image is auto center-cropped to a square profile photo.
+                </small>
+                <button @click="uploadProfileImage" type="button" class="btn btn-outline-primary mt-2">
+                  Upload New Image
+                </button>
+                <p class="text-danger mb-0 mt-2" v-if="imageError">{{ imageError }}</p>
+              </div>
             </div>
 
-            <!-- Profile Form -->
             <form @submit="submitUpdate">
               <div class="mb-3">
                 <label for="email" class="form-label">Email Address</label>
@@ -135,6 +132,10 @@
 </template>
 
 <script>
+const maleProfileImage = new URL('../assets/img/profile_male.png', import.meta.url).href
+const femaleProfileImage = new URL('../assets/img/profile_female.png', import.meta.url).href
+const otherProfileImage = new URL('../assets/img/profile_other.png', import.meta.url).href
+
 export default {
   data() {
     return {
@@ -145,6 +146,10 @@ export default {
       gender: '',
       birthday: '',
       bio: '',
+      profileImage: '',
+      selectedImageData: '',
+      selectedImagePreview: '',
+      imageError: '',
       errors: {
         password: '',
         username: '',
@@ -155,6 +160,19 @@ export default {
         general: '',
       },
     }
+  },
+  computed: {
+    profileImageSrc() {
+      if (this.selectedImagePreview) {
+        return this.selectedImagePreview
+      }
+
+      if (this.profileImage) {
+        return this.profileImage
+      }
+
+      return this.getDefaultProfileImageByGender()
+    },
   },
   methods: {
     async submitUpdate(e) {
@@ -190,8 +208,119 @@ export default {
         this.errors.age = 'You must be less than 200 years old.'
       }
 
-      if (bio.length > 200) {
+      if (this.bio && this.bio.length > 200) {
         this.errors.bio = 'Bio must be less than 200 characters.'
+      }
+    },
+
+    getDefaultProfileImageByGender() {
+      if (this.gender === 'male') {
+        return maleProfileImage
+      }
+
+      if (this.gender === 'female') {
+        return femaleProfileImage
+      }
+
+      return otherProfileImage
+    },
+
+    async cropImageToSquare(file) {
+      const imageUrl = URL.createObjectURL(file)
+
+      try {
+        const loadedImage = await new Promise((resolve, reject) => {
+          const image = new Image()
+          image.onload = () => resolve(image)
+          image.onerror = () => reject(new Error('Could not load image.'))
+          image.src = imageUrl
+        })
+
+        const sourceSize = Math.min(loadedImage.width, loadedImage.height)
+        const sourceX = Math.floor((loadedImage.width - sourceSize) / 2)
+        const sourceY = Math.floor((loadedImage.height - sourceSize) / 2)
+
+        const canvas = document.createElement('canvas')
+        canvas.width = 512
+        canvas.height = 512
+
+        const context = canvas.getContext('2d')
+        context.drawImage(
+          loadedImage,
+          sourceX,
+          sourceY,
+          sourceSize,
+          sourceSize,
+          0,
+          0,
+          canvas.width,
+          canvas.height,
+        )
+
+        return canvas.toDataURL('image/jpeg', 0.92)
+      } finally {
+        URL.revokeObjectURL(imageUrl)
+      }
+    },
+
+    async handleImageSelected(event) {
+      this.imageError = ''
+      const selectedFile = event.target.files?.[0]
+
+      if (!selectedFile) {
+        return
+      }
+
+      if (selectedFile.size > 8 * 1024 * 1024) {
+        this.imageError = 'Image must be 8MB or smaller.'
+        this.selectedImageData = ''
+        this.selectedImagePreview = ''
+        return
+      }
+
+      try {
+        const croppedImage = await this.cropImageToSquare(selectedFile)
+        this.selectedImageData = croppedImage
+        this.selectedImagePreview = croppedImage
+      } catch (error) {
+        this.imageError = 'Could not process this image file.'
+        this.selectedImageData = ''
+        this.selectedImagePreview = ''
+      }
+    },
+
+    async uploadProfileImage() {
+      this.imageError = ''
+
+      if (!this.selectedImageData) {
+        this.imageError = 'Please choose an image first.'
+        return
+      }
+
+      try {
+        const response = await fetch('/api/user/profile/image', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `${localStorage.getItem('token')}`,
+          },
+          body: JSON.stringify({
+            imageData: this.selectedImageData,
+          }),
+        })
+
+        const data = await response.json()
+        if (!response.ok) {
+          this.imageError = data.message || 'Failed to upload image.'
+          return
+        }
+
+        this.profileImage = data.profileImage
+        this.selectedImageData = ''
+        this.selectedImagePreview = ''
+      } catch (error) {
+        this.imageError = 'Upload failed. Please try again.'
+        console.log(error)
       }
     },
 
@@ -252,8 +381,9 @@ export default {
       this.username = data.username
       this.age = data.age
       this.gender = data.gender
-      this.birthday = new Date(data.birthday).toISOString().split('T')[0]
+      this.birthday = data.birthday ? new Date(data.birthday).toISOString().split('T')[0] : ''
       this.bio = data.bio
+      this.profileImage = data.profileImage || ''
     } catch (error) {
       console.log(error)
     }

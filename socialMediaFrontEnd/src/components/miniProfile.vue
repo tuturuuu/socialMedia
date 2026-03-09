@@ -1,30 +1,12 @@
 <template>
-  <!-- Sidebar - Profile & Trends -->
-  <!-- Profile Section -->
   <div class="card-body text-center">
     <img
-      v-if="gender == 'male'"
-      src="../assets/img/profile_male.png"
+      :src="profileImage || getDefaultProfileImageByGender(gender)"
       class="rounded-circle mb-3"
       alt="User Profile"
       width="100"
       height="100"
-    />
-    <img
-      v-if="gender == 'female'"
-      src="../assets/img/profile_female.png"
-      class="rounded-circle mb-3"
-      alt="User Profile"
-      width="100"
-      height="100"
-    />
-    <img
-      v-if="gender == 'other' || gender == undefined"
-      src="../assets/img/profile_other.png"
-      class="rounded-circle mb-3"
-      alt="User Profile"
-      width="100"
-      height="100"
+      style="object-fit: cover"
     />
     <h5 class="card-title">{{ username }}</h5>
 
@@ -36,13 +18,31 @@
 </template>
 
 <script>
+const maleProfileImage = new URL('../assets/img/profile_male.png', import.meta.url).href
+const femaleProfileImage = new URL('../assets/img/profile_female.png', import.meta.url).href
+const otherProfileImage = new URL('../assets/img/profile_other.png', import.meta.url).href
+
 export default {
   data() {
     return {
       username: '',
       bio: '',
       gender: '',
+      profileImage: '',
     }
+  },
+  methods: {
+    getDefaultProfileImageByGender(gender) {
+      if (gender === 'male') {
+        return maleProfileImage
+      }
+
+      if (gender === 'female') {
+        return femaleProfileImage
+      }
+
+      return otherProfileImage
+    },
   },
   async mounted() {
     const token = localStorage.getItem('token')
@@ -62,6 +62,7 @@ export default {
       this.username = data.username
       this.bio = data.bio
       this.gender = data.gender
+      this.profileImage = data.profileImage || ''
     } catch (error) {
       console.log(error)
     }
