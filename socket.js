@@ -9,29 +9,29 @@ module.exports = (server) => {
     .split(",")
     .map((origin) => origin.trim())
     .filter(Boolean);
-  const allowedOrigins = new Set([
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
-    ...configuredOrigins,
-  ]);
 
   const io = new Server(server, {
     connectionStateRecovery: false,
     cors: {
-      origin: (origin, callback) => {
-        if (!origin || allowedOrigins.has(origin)) {
-          callback(null, true);
-          return;
-        }
-        callback(new Error(`Socket origin not allowed: ${origin}`));
-      },
+      // Accept browser origins; explicit list still supported via env
+      origin: configuredOrigins.length ? configuredOrigins : true,
       methods: ["GET", "POST", "PUT", "DELETE"],
-      credentials: true,
+      credentials: false,
+    },
+    allowRequest: (req, callback) => {
+      // Allow requests without Origin header (some proxy/websocket paths omit it)
+      callback(null, true);
     },
   });
 
   io.engine.on("connection_error", (err) => {
-    console.error("Socket.IO connection error:", err.code, err.message, err.context?.origin || "no-origin");
+    console.error(
+      "Socket.IO connection error:",
+      err.code,
+      err.message,
+      err.context?.origin || "no-origin",
+      err.context?.transport || "no-transport"
+    );
   });
 
   io.use((socket, next) => {
