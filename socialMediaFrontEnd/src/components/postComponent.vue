@@ -343,6 +343,7 @@ export default {
 
         if (response.ok) {
           const data = await response.json()
+          post.newComment = ''
           this.updatePostInList(data.post)
         }
       } catch (error) {
@@ -437,3 +438,6 @@ export default {
   },
 }
 </script>
+
+
+

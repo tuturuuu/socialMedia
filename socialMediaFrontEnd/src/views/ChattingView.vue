@@ -54,6 +54,11 @@ export default {
     return {
       showContacts: true,
       rooms: [],
+      socket: null,
+      socketRetryTimer: null,
+      chatMessageHandler: null,
+      socketConnectHandler: null,
+      listenersBound: false,
     }
   },
   methods: {
@@ -88,30 +93,90 @@ export default {
       const content = room.lastMessage.content.trim()
       return content.length > 45 ? `${content.slice(0, 45)}...` : content
     },
+    async fetchRooms() {
+      try {
+        const response = await fetch('/api/room/', {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: localStorage.getItem('token'),
+          },
+        })
+        const data = await response.json()
+        this.rooms = data
+      } catch (error) {
+        console.log(error)
+      }
+    },
+    updateRoomLastMessage(roomId, message) {
+      const roomIndex = this.rooms.findIndex((room) => room._id === roomId)
+      if (roomIndex === -1) {
+        return
+      }
+
+      const updatedRoom = {
+        ...this.rooms[roomIndex],
+        lastMessage: message,
+      }
+
+      this.rooms = [updatedRoom, ...this.rooms.filter((room) => room._id !== roomId)]
+    },
+    bindSocketListeners() {
+      if (!this.socket || this.listenersBound) {
+        return
+      }
+
+      this.chatMessageHandler = (msg, roomId) => {
+        this.updateRoomLastMessage(roomId, msg)
+      }
+
+      this.socketConnectHandler = () => {
+        this.fetchRooms()
+      }
+
+      this.socket.on('chat message', this.chatMessageHandler)
+      this.socket.on('connect', this.socketConnectHandler)
+      this.listenersBound = true
+    },
+    unbindSocketListeners() {
+      if (!this.socket || !this.listenersBound) {
+        return
+      }
+
+      if (this.chatMessageHandler) this.socket.off('chat message', this.chatMessageHandler)
+      if (this.socketConnectHandler) this.socket.off('connect', this.socketConnectHandler)
+
+      this.listenersBound = false
+    },
+    initChatSocket() {
+      this.socket = this.$store.getters.getSocket
+
+      if (!this.socket) {
+        this.socketRetryTimer = setTimeout(() => {
+          this.initChatSocket()
+        }, 200)
+        return
+      }
+
+      this.bindSocketListeners()
+    },
   },
   unmounted() {
+    if (this.socketRetryTimer) {
+      clearTimeout(this.socketRetryTimer)
+    }
+
+    this.unbindSocketListeners()
     this.$store.commit('setIsChattingView', false)
   },
   async mounted() {
     this.$store.commit('setIsChattingView', true)
+    this.initChatSocket()
+    await this.fetchRooms()
 
-    try {
-      const response = await fetch('/api/room/', {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: localStorage.getItem('token'),
-        },
-      })
-      const data = await response.json()
-      this.rooms = data
-    } catch (error) {
-      console.log(error)
-    }
     if (this.rooms.length > 0 && !this.$route.params.id) {
       this.$router.push(`/chatting/room/${this.getContactName(this.rooms[0])}/${this.rooms[0]._id}`)
     }
   },
 }
 </script>
-
