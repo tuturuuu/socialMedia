@@ -200,7 +200,6 @@ export default {
 
       const newSocket = io({
         auth: { token },
-        transports: ['websocket'],
         reconnection: true,
         reconnectionAttempts: 10,
         reconnectionDelay: 1500,
@@ -262,5 +261,6 @@ export default {
   cursor: pointer;
 }
 </style>
+
 
 
