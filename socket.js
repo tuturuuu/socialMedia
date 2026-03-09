@@ -8,7 +8,7 @@ module.exports = (server) => {
   const io = new Server(server, {
     connectionStateRecovery: false,
     cors: {
-      origin: "http://localhost:5173",
+      origin: ["http://localhost:5173", "http://localhost:3000", ...(process.env.CORS_ORIGINS ? process.env.CORS_ORIGINS.split(",") : [])],
       methods: ["GET", "POST", "PUT", "DELETE"],
     },
   });
