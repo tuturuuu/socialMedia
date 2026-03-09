@@ -5,12 +5,33 @@ const jwt = require("jsonwebtoken");
 const mongoose = require("mongoose");
 
 module.exports = (server) => {
+  const configuredOrigins = (process.env.CORS_ORIGINS || process.env.CORS_ORIGIN || "")
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+  const allowedOrigins = new Set([
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    ...configuredOrigins,
+  ]);
+
   const io = new Server(server, {
     connectionStateRecovery: false,
     cors: {
-      origin: "http://localhost:5173",
+      origin: (origin, callback) => {
+        if (!origin || allowedOrigins.has(origin)) {
+          callback(null, true);
+          return;
+        }
+        callback(new Error(`Socket origin not allowed: ${origin}`));
+      },
       methods: ["GET", "POST", "PUT", "DELETE"],
+      credentials: true,
     },
+  });
+
+  io.engine.on("connection_error", (err) => {
+    console.error("Socket.IO connection error:", err.code, err.message, err.context?.origin || "no-origin");
   });
 
   io.use((socket, next) => {

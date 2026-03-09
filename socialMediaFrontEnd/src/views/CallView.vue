@@ -129,6 +129,7 @@ export default {
         auth: {
           token: localStorage.getItem('token'),
         },
+        transports: ['websocket'],
       })
 
       this.peer = new Peer()
@@ -264,3 +265,4 @@ video {
   z-index: 5;
 }
 </style>
+
